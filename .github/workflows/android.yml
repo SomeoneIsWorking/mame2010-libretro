@@ -1,0 +1,36 @@
+# Builds the Android cores openSU downloads and publishes them as the tag's release.
+name: Android
+on:
+  push:
+    tags: ["20*"]
+permissions:
+  contents: write
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      NDK_VERSION: 28.2.13676358
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: NDK
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" > /dev/null
+      - name: Build
+        run: >
+          "$ANDROID_HOME/ndk/$NDK_VERSION/ndk-build" -C jni -j"$(nproc)"
+          APP_ABI="arm64-v8a x86_64" NDK_OUT="$PWD/build/obj" NDK_LIBS_OUT="$PWD/build/libs"
+      - name: Package
+        run: |
+          mkdir -p out
+          for abi in arm64-v8a x86_64; do
+            mkdir -p "build/zip/$abi"
+            cp "build/libs/$abi/libretro.so" "build/zip/$abi/mame2010_libretro_android.so"
+            zip -X -9 -j "out/mame2010_libretro_android-$abi.zip" "build/zip/$abi/mame2010_libretro_android.so"
+          done
+          sha256sum -- out/*.zip | sed 's# out/# #' > out/SHA256SUMS
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" out/* --title "$GITHUB_REF_NAME"
+          --notes "MAME 2010 for Android (arm64-v8a, x86_64), built with NDK $NDK_VERSION from $GITHUB_SHA."
